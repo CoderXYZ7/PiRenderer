@@ -13,6 +13,7 @@ from typing import Tuple, List
 """By coderXYZ7 """
 
 player_angle_global = 0
+fov_global = 0
 
 @dataclass
 class RenderSettings:
@@ -32,6 +33,8 @@ class RenderSettings:
         self.HALF_FOV = self.FOV / 2
         self.DELTA_ANGLE = self.FOV / self.NUM_RAYS
         self.DISTANCE = self.HALF_WIDTH / math.tan(self.HALF_FOV)
+    
+    fov_global = FOV
 
 @dataclass
 class Colors:
@@ -131,11 +134,16 @@ def ray_cast_all(player_x: float, player_y: float, angle: float,
     
     start_angle = angle - fov / 2
     angle_step = fov / num_rays
-    
-    for i in range(num_rays):
+
+# TODO: resolve rendering/raycast issues    
+    for i in range(num_rays/2):
         ray_angle = start_angle + i * angle_step
         depth, orientation = ray_cast_single(player_x, player_y, ray_angle, world_map, max_depth)
         rays[i] = depth * math.cos(angle - ray_angle)  # Fix fisheye effect
+    for i in range(num_rays/2):
+        ray_angle = - (start_angle + i * angle_step)
+        depth, orientation = ray_cast_single(player_x, player_y, ray_angle, world_map, max_depth)
+        rays[-i] = depth * math.cos(angle - ray_angle)  # Fix fisheye effect
         
         # Store orientation if needed for rendering (optional)
         # You might want to create a separate array to store orientations
@@ -362,7 +370,7 @@ class Game:
         self.player_pos = self.game_map.player_start
         
         # Player state
-        self.player_angle = 0
+        self.player_angle = - fov_global/2
         
         # Initialize renderer after player_pos is initialized
         self.renderer = Renderer(self.settings, self.colors, self.game_map, self.player_pos)
