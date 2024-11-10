@@ -1,3 +1,26 @@
+"""
+Doom-style raycasting engine using pygame and numpy
+
+This script renders a 3D-like environment from a 2D image. It uses the
+raycasting technique to create the 3D illusion.
+
+The game map is a 2D image where each pixel represents a wall (white pixel)
+or empty space (black pixel). The game map is stored in the GameMap class.
+
+The renderer is responsible for rendering the 3D environment. It uses the
+raycasting technique to render the walls and the floor.
+
+The game loop is handled by the Game class. It handles user input and
+updates the player position accordingly.
+
+The game map image path is passed as an argument to the script. The image
+should be in the same directory as the script.
+
+Example usage:
+    python script.py map.png
+
+"""
+
 import pygame
 import sys
 import colorsys
@@ -47,77 +70,89 @@ class Colors:
 def ray_cast_single(player_x: float, player_y: float, angle: float, 
                     world_map: np.ndarray, max_depth: float) -> tuple:
     """Cast a single ray and return the distance to wall and wall orientation"""
+    # Normalize angle to stay within [0, 2π]
+    angle = angle % (2 * math.pi)
+    
     sin_a = math.sin(angle)
     cos_a = math.cos(angle)
     
     # Vertical intersections
-    depth_v = float('inf')
-    wall_orientation_v = None
+    x_vert, y_vert = player_x, player_y
+    depth_v = 0
+    dx = 1 if cos_a > 0 else -1
     
-    if cos_a > 0:  # Looking right
-        x = int(player_x) + 1  # Start from the next column
-        dx = 1
-        wall_orientation_v = 'E'  # East-facing wall
-    elif cos_a < 0:  # Looking left
-        x = int(player_x)  # Start from the current column
-        dx = -1
-        wall_orientation_v = 'W'  # West-facing wall
+    # First vertical intersection point
+    if cos_a > 0:
+        x_vert = math.ceil(player_x)
+        dx_vert = x_vert - player_x
     else:
-        # If cos_a is zero, we are looking straight up or down
-        return (max_depth, None)  # No vertical wall hit
-
-    # Vertical raycasting loop
+        x_vert = math.floor(player_x)
+        dx_vert = x_vert - player_x
+    
+    # Calculate y coordinate of first intersection
+    y_vert = player_y + dx_vert * sin_a / cos_a if cos_a != 0 else player_y
+    
+    # Steps between vertical lines
+    delta_depth = abs(1 / cos_a) if cos_a != 0 else float('inf')
+    dy = delta_depth * sin_a
+    
+    # Vertical ray casting loop
+    wall_orientation_v = 'E' if cos_a > 0 else 'W'
     for _ in range(int(max_depth)):
-        depth_v = (x - player_x) / cos_a if cos_a != 0 else max_depth
-        y = player_y + depth_v * sin_a
+        map_x, map_y = int(x_vert), int(y_vert)
         
-        # Check the cell on the vertical line
-        map_x = x  # No adjustment needed for vertical walls
-        map_y = int(y)
-        
+        # Check boundaries
         if not (0 <= map_x < world_map.shape[1] and 0 <= map_y < world_map.shape[0]):
-            depth_v = max_depth
+            depth_v = float('inf')
             break
             
-        if world_map[map_y, map_x]:  # Wall hit
+        # Check for wall hit
+        if world_map[map_y, map_x]:
+            depth_v = math.sqrt((x_vert - player_x)**2 + (y_vert - player_y)**2)
             break
             
-        x += dx
+        x_vert += dx
+        y_vert += dy
+        depth_v += delta_depth
     
     # Horizontal intersections
-    depth_h = float('inf')
-    wall_orientation_h = None
+    x_horz, y_horz = player_x, player_y
+    depth_h = 0
+    dy = 1 if sin_a > 0 else -1
     
-    print(angle)
-    if sin_a > 0:  # Looking down
-        y = int(player_y) + 1  # Start from the next row
-        dy = 1
-        wall_orientation_h = 'S'  # South-facing wall
-    elif sin_a < 0:  # Looking up
-        y = int(player_y)  # Start from the current row
-        dy = -1
-        wall_orientation_h = 'N'  # North-facing wall
+    # First horizontal intersection point
+    if sin_a > 0:
+        y_horz = math.ceil(player_y)
+        dy_horz = y_horz - player_y
     else:
-        # If sin_a is zero, we are looking straight left or right
-        return (max_depth, None)  # No horizontal wall hit
-
-    # Horizontal raycasting loop
+        y_horz = math.floor(player_y)
+        dy_horz = y_horz - player_y
+    
+    # Calculate x coordinate of first intersection
+    x_horz = player_x + dy_horz * cos_a / sin_a if sin_a != 0 else player_x
+    
+    # Steps between horizontal lines
+    delta_depth = abs(1 / sin_a) if sin_a != 0 else float('inf')
+    dx = delta_depth * cos_a
+    
+    # Horizontal ray casting loop
+    wall_orientation_h = 'S' if sin_a > 0 else 'N'
     for _ in range(int(max_depth)):
-        depth_h = (y - player_y) / sin_a if sin_a != 0 else max_depth
-        x = player_x + depth_h * cos_a
+        map_x, map_y = int(x_horz), int(y_horz)
         
-        # Check the cell on the horizontal line
-        map_x = int(x)
-        map_y = y  # No adjustment needed for horizontal walls
-        
+        # Check boundaries
         if not (0 <= map_x < world_map.shape[1] and 0 <= map_y < world_map.shape[0]):
-            depth_h = max_depth
+            depth_h = float('inf')
             break
             
-        if world_map[map_y, map_x]:  # Wall hit
+        # Check for wall hit
+        if world_map[map_y, map_x]:
+            depth_h = math.sqrt((x_horz - player_x)**2 + (y_horz - player_y)**2)
             break
             
-        y += dy
+        x_horz += dx
+        y_horz += dy
+        depth_h += delta_depth
     
     # Return the shortest distance and corresponding orientation
     if depth_v < depth_h:
@@ -133,21 +168,13 @@ def ray_cast_all(player_x: float, player_y: float, angle: float,
     rays = np.zeros(num_rays, dtype=np.float32)
     
     start_angle = angle - fov / 2
-    angle_step = fov / num_rays
-
-# TODO: resolve rendering/raycast issues    
-    for i in range(num_rays/2):
-        ray_angle = start_angle + i * angle_step
+    angle_step = fov / (num_rays - 1)  # Distribute rays evenly across FOV
+    
+    for i in range(num_rays):
+        ray_angle = start_angle + (i * angle_step)
         depth, orientation = ray_cast_single(player_x, player_y, ray_angle, world_map, max_depth)
-        rays[i] = depth * math.cos(angle - ray_angle)  # Fix fisheye effect
-    for i in range(num_rays/2):
-        ray_angle = - (start_angle + i * angle_step)
-        depth, orientation = ray_cast_single(player_x, player_y, ray_angle, world_map, max_depth)
-        rays[-i] = depth * math.cos(angle - ray_angle)  # Fix fisheye effect
-        
-        # Store orientation if needed for rendering (optional)
-        # You might want to create a separate array to store orientations
-        # For example: orientations[i] = orientation
+        # Fix fisheye effect
+        rays[i] = depth * math.cos(ray_angle - angle)
     
     return rays
 
@@ -396,8 +423,8 @@ class Game:
         
         # Movement
         if keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            sin_a = math.sin(self.player_angle)
-            cos_a = math.cos(self.player_angle)
+            sin_a = math.sin((self.player_angle)) #+ self.settings.HALF_FOV/2)
+            cos_a = math.cos((self.player_angle)) # + self.settings.HALF_FOV/2)
             
             forward = 1 if keys[pygame.K_UP] or keys[pygame.K_w] else -1
             
