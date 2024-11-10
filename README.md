@@ -28,7 +28,7 @@ pip install pygame numpy pillow
 ### Launching PiRenderer
 Run PiRenderer from the command line with:
 ```bash
-python doom_engine.py <map_image_path>
+python main.py <map_image_path>
 ```
 where `<map_image_path>` is the path to a map image file that defines the game environment.
 
