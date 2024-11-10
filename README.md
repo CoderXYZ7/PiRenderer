@@ -1,5 +1,3 @@
-Certainly, here’s an expanded version that includes more detail on map requirements, setup, and configuration options:
-
 ---
 
 # PiRenderer
