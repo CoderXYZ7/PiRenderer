@@ -3,6 +3,7 @@ import numpy as np
 import sys
 from PIL import Image
 import math
+import csv
 
 debug = False
 
@@ -42,6 +43,15 @@ class DoomEngine:
         self.FLOOR_COLOR = (50, 50, 50)
         self.CEILING_COLOR = (100, 100, 100)
         self.SHADING_TABLE = self.create_shading_table()
+
+        # Add new text box related properties
+        self.text_boxes = {}  # Dictionary to store text box locations and messages
+        self.active_text_box = None  # Currently displayed text box
+        self.text_box_range = 2.0  # Distance within which player can interact
+        self.font = pygame.font.Font(None, 36)  # Font for rendering text
+        
+        # Load text box data from CSV
+        self.load_text_boxes(map_path)
         
         # Initialize screen
         self.screen = pygame.display.set_mode((self.WINDOW_WIDTH, self.WINDOW_HEIGHT))
@@ -57,6 +67,21 @@ class DoomEngine:
         
         # Precalculate ray angles
         self.setup_rays()
+
+    def load_text_boxes(self, map_path):
+        """Load text box data from a CSV file with the same name as the map."""
+        csv_path = map_path.rsplit('.', 1)[0] + '.csv'
+        try:
+            with open(csv_path, 'r') as file:
+                reader = csv.reader(file)
+                next(reader)  # Skip header row
+                for row in reader:
+                    if len(row) >= 2:
+                        id_value = int(row[0])  # xx value from #F000xx
+                        message = row[1]
+                        self.text_boxes[id_value] = message
+        except FileNotFoundError:
+            print(f"Warning: Text box data file {csv_path} not found.")
         
     def setup_rays(self):
         """Precalculate ray angles and their sine/cosine values."""
@@ -81,10 +106,11 @@ class DoomEngine:
         return shading_table
 
     def load_map(self, map_path):
-        """Load and process the map from an image file."""
+        """Modified load_map to handle text box markers."""
         img = Image.open(map_path)
         self.map_width, self.map_height = img.size
         self.map_data = []
+        self.text_box_locations = {}  # Store text box locations
         
         for y in range(self.map_height):
             row = []
@@ -93,15 +119,93 @@ class DoomEngine:
                 if isinstance(pixel, int):
                     pixel = (pixel, pixel, pixel)
                 
-                if pixel[0] == 0 and pixel[1] == 0 and pixel[2] == 0:  # Empty space
+                # Check for text box marker (#F000xx)
+                if pixel[0] == 240 and pixel[1] == 0:  # #F000xx
+                    text_box_id = pixel[2]
+                    self.text_box_locations[(x, y)] = text_box_id
+                    row.append(0)  # Treat as empty space for collision
+                elif pixel[0] == 0 and pixel[1] == 0 and pixel[2] == 0:  # Empty space
                     row.append(0)
                 elif pixel[0] == 255 and pixel[1] == 0:  # Wall
-                    row.append(pixel[2] + 1)  # Store wall color (+1 to avoid confusion with empty space)
+                    row.append(pixel[2] + 1)
                 else:
                     row.append(0)
             self.map_data.append(row)
         
         self.map_array = np.array(self.map_data)
+
+    def check_text_box_interaction(self):
+        """Check if player is near any text box and handle interaction."""
+        closest_distance = float('inf')
+        closest_text_box = None
+
+        for (x, y), text_id in self.text_box_locations.items():
+            distance = math.sqrt(
+                (self.player_pos[0] - x) ** 2 +
+                (self.player_pos[1] - y) ** 2
+            )
+            
+            if distance < self.text_box_range and distance < closest_distance:
+                closest_distance = distance
+                if text_id in self.text_boxes:
+                    closest_text_box = text_id
+
+        return closest_text_box
+
+    def render_text_box(self):
+        """Render the active text box on screen."""
+        if self.active_text_box is not None and self.active_text_box in self.text_boxes:
+            message = self.text_boxes[self.active_text_box]
+            
+            # Create text box background
+            padding = 20
+            margin = 50
+            max_width = self.WINDOW_WIDTH - (margin * 2)
+            
+            # Render text with word wrap
+            words = message.split()
+            lines = []
+            current_line = []
+            
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                test_surface = self.font.render(test_line, True, (255, 255, 255))
+                
+                if test_surface.get_width() <= max_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                        current_line = [word]
+                    else:
+                        lines.append(word)
+            
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            # Calculate text box dimensions
+            line_height = self.font.get_linesize()
+            box_height = (line_height * len(lines)) + (padding * 2)
+            box_width = min(max_width + padding * 2, self.WINDOW_WIDTH - margin * 2)
+            
+            # Draw text box
+            box_surface = pygame.Surface((box_width, box_height))
+            box_surface.fill((0, 0, 0))
+            pygame.draw.rect(box_surface, (255, 255, 255), box_surface.get_rect(), 2)
+            
+            # Render text lines
+            for i, line in enumerate(lines):
+                text_surface = self.font.render(line, True, (255, 255, 255))
+                box_surface.blit(
+                    text_surface,
+                    (padding, padding + i * line_height)
+                )
+            
+            # Position text box at bottom of screen
+            self.screen.blit(
+                box_surface,
+                (margin, self.WINDOW_HEIGHT - box_height - margin)
+            )
         
     def find_player_start(self):
         """Find the player's starting position (green pixel)."""
@@ -220,6 +324,16 @@ class DoomEngine:
             (self.WINDOW_WIDTH, self.WINDOW_HEIGHT)
         )
         self.screen.blit(scaled_surface, (0, 0))
+
+        # Render text box if active
+        self.render_text_box()
+        
+        # If near a text box, show interaction prompt
+        nearby_text_box = self.check_text_box_interaction()
+        if nearby_text_box is not None and self.active_text_box is None:
+            prompt = self.font.render("Press F to interact", True, (255, 255, 255))
+            prompt_rect = prompt.get_rect(center=(self.WINDOW_WIDTH // 2, self.WINDOW_HEIGHT - 50))
+            self.screen.blit(prompt, prompt_rect)
         
         # Render minimap
         self.render_minimap()
@@ -290,45 +404,45 @@ class DoomEngine:
         """Handle player input for movement and rotation."""
         keys = pygame.key.get_pressed()
 
-        speed = self.PLAYER_SPEED
-        
-        # Rotation
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            self.player_angle -= self.ROTATION_SPEED
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            self.player_angle += self.ROTATION_SPEED
+        if self.active_text_box is None:
+            speed = self.PLAYER_SPEED
+            
+            # Rotation
+            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                self.player_angle -= self.ROTATION_SPEED
+            if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                self.player_angle += self.ROTATION_SPEED
 
-        if debug:
-            print(self.player_angle)
-        
-        # sprint when holding shift
-        if keys[pygame.K_LSHIFT]:
-            speed = self.PLAYER_SPRINT_SPEED
+            if debug:
+                print(self.player_angle)
+            
+            # sprint when holding shift
+            if keys[pygame.K_LSHIFT]:
+                speed = self.PLAYER_SPRINT_SPEED
 
-        # Movement with improved collision detection
-        if keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            sin_a = math.sin(self.player_angle)
-            cos_a = math.cos(self.player_angle)
-            
-            forward = 1 if keys[pygame.K_UP] or keys[pygame.K_w] else -1
-            
-            next_x = self.player_pos[0] + forward * cos_a * speed
-            next_y = self.player_pos[1] + forward * sin_a * speed
-            
-            # Try to move in at least one direction if we can't move in both
-            if not self.check_collision(next_x, next_y):
-                self.player_pos[0] = next_x
-                self.player_pos[1] = next_y
-            elif not self.check_collision(next_x, self.player_pos[1]):
-                self.player_pos[0] = next_x
-            elif not self.check_collision(self.player_pos[0], next_y):
-                self.player_pos[1] = next_y
+            # Movement with improved collision detection
+            if keys[pygame.K_UP] or keys[pygame.K_w] or keys[pygame.K_DOWN] or keys[pygame.K_s]:
+                sin_a = math.sin(self.player_angle)
+                cos_a = math.cos(self.player_angle)
+                
+                forward = 1 if keys[pygame.K_UP] or keys[pygame.K_w] else -1
+                
+                next_x = self.player_pos[0] + forward * cos_a * speed
+                next_y = self.player_pos[1] + forward * sin_a * speed
+                
+                # Try to move in at least one direction if we can't move in both
+                if not self.check_collision(next_x, next_y):
+                    self.player_pos[0] = next_x
+                    self.player_pos[1] = next_y
+                elif not self.check_collision(next_x, self.player_pos[1]):
+                    self.player_pos[0] = next_x
+                elif not self.check_collision(self.player_pos[0], next_y):
+                    self.player_pos[1] = next_y
 
     def run(self):
         """Main game loop."""
         clock = pygame.time.Clock()
         running = True
-
         
         while running:
             # Handle events
@@ -337,7 +451,16 @@ class DoomEngine:
                     running = False
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
-                        running = False
+                        if self.active_text_box is not None:
+                            self.active_text_box = None
+                        else:
+                            running = False
+                    elif event.key == pygame.K_f:  # Handle F key press here
+                        nearby_text_box = self.check_text_box_interaction()
+                        if self.active_text_box is None and nearby_text_box is not None:
+                            self.active_text_box = nearby_text_box
+                        else:
+                            self.active_text_box = None
                     elif event.key == pygame.K_F11:  # Toggle render scale
                         self.RENDER_SCALE = 1.0 if self.RENDER_SCALE < 1.0 else 0.5
                         self.RENDER_WIDTH = int(self.WINDOW_WIDTH * self.RENDER_SCALE)
@@ -348,7 +471,6 @@ class DoomEngine:
             
             self.handle_input()
             self.render()
-
             
             # Display FPS
             fps = clock.get_fps()
