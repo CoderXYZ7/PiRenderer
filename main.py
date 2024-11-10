@@ -82,10 +82,13 @@ def ray_cast_single(player_x: float, player_y: float, angle: float,
     dx = 1 if cos_a > 0 else -1
     
     # First vertical intersection point
+    # Determine the first vertical intersection point and the step direction
     if cos_a > 0:
+        # Ray is facing right, calculate the first intersection to the right
         x_vert = math.ceil(player_x)
         dx_vert = x_vert - player_x
     else:
+        # Ray is facing left, calculate the first intersection to the left
         x_vert = math.floor(player_x)
         dx_vert = x_vert - player_x
     
