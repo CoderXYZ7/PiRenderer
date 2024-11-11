@@ -16,7 +16,7 @@ class DoomEngine:
         self.WINDOW_HEIGHT = 900
         
         # Render resolution (can be adjusted for performance)
-        self.RENDER_SCALE = 0.4  # Render at half resolution
+        self.RENDER_SCALE = 0.4  # Render at x resolution
         self.RENDER_WIDTH = int(self.WINDOW_WIDTH * self.RENDER_SCALE)
         self.RENDER_HEIGHT = int(self.WINDOW_HEIGHT * self.RENDER_SCALE)
         
@@ -30,7 +30,7 @@ class DoomEngine:
         self.MAX_DEPTH = 800
         self.WALL_HEIGHT = int(2000 * self.RENDER_SCALE)  # Scale wall height with render resolution
         self.PLAYER_SPEED = 0.07
-        self.PLAYER_SPRINT_SPEED = 0.15
+        self.PLAYER_SPRINT_SPEED = 0.2
         self.ROTATION_SPEED = 0.03
         
         # Minimap settings
